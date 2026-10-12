@@ -1,0 +1,46 @@
+name: Keep Patrick Tech media warm
+
+# The Render free web service sleeps after ~15 idle minutes; the next request
+# can then take 30-90s. This public repo exists only to ping a lightweight
+# health endpoint on a schedule.
+#
+# Public repositories get free, unmetered GitHub-hosted runner minutes, so this
+# costs nothing and does not touch the private media repo's 2,000-minute quota.
+
+on:
+  schedule:
+    # Every 5 minutes. Render's idle window is ~15 minutes, so three consecutive
+    # pings would have to be missed before the instance could fall asleep.
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-warm
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping health endpoint
+        env:
+          HEALTH_URL: https://www.patricktechmedia.com/api/health
+        run: |
+          set -u
+          for attempt in 1 2 3; do
+            started=$(date +%s)
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 "$HEALTH_URL" || echo "000")
+            elapsed=$(( $(date +%s) - started ))
+            echo "attempt ${attempt}: HTTP ${code} in ${elapsed}s"
+            if [ "$code" = "200" ]; then
+              echo "service is awake"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::warning::could not reach ${HEALTH_URL} (last HTTP ${code})"
+          exit 0
